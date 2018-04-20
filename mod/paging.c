@@ -20,6 +20,10 @@ typedef struct {
 static atomic_t pages_created = ATOMIC_INIT(0);
 static atomic_t pages_freed = ATOMIC_INIT(0);
 
+static unsigned int demand_paging = 1;
+module_param(demand_paging, uint, 0644);
+
+
 static void
 paging_vma_open(struct vm_area_struct * vma)
 {
@@ -100,6 +104,21 @@ paging_vma_ops =
 };
 
 
+static unsigned int get_order(unsigned int val) {
+	unsigned int shifts = 0;
+	if(!value) {
+		return 0;
+	}
+	if ( !(value & (value - 1)) ){
+		--value;
+	}
+	while (value > 0) {
+		value >>= 1;
+		++shifts;
+	}
+	return shifts;
+}
+
 /* vma is the new virtual address segment for the process */
 static int
 paging_mmap(struct file           * filp,
@@ -119,7 +138,7 @@ paging_mmap(struct file           * filp,
 	tracker = (vma_tracker_t *) kmalloc( sizeof(vma_tracker_t), GFP_KERNEL );
 	if( !tracker ) {
 		printk(KERN_ERR "Failed to malloc vm_private_data\n");
-		return -ENOMEM;
+				return -ENOMEM;
 	}
 	
 	tracker->nr_pages = (vma->vm_end - vma->vm_start) / PAGE_SIZE;
@@ -130,6 +149,7 @@ paging_mmap(struct file           * filp,
 			sizeof(unsigned int), GFP_KERNEL);
 	if( !tracker->page_indices ) {
 		printk(KERN_ERR "Failed to malloc page_indices\n");
+		return -ENOMEM
 	}
 	for(i = 0; i < tracker->nr_pages; ++i) {
 		tracker->page_indices[i] = 0;

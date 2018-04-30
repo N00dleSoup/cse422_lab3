@@ -83,11 +83,11 @@ paging_vma_fault(struct vm_area_struct * vma,
 	//Increase the count of allocated pages
 	atomic_inc(&pages_created);	
 
-	tracker = (vma_tracker_t *)vma->vm_private_data;
-	tracker->page_indices[p_offset] = phys_pfn;
 	
 	//Remap the virtual address of the beginning of the faulting page to new phys page
 	phys_pfn = page_to_pfn(new_page);
+	tracker = (vma_tracker_t *)vma->vm_private_data;
+	tracker->page_indices[p_offset] = phys_pfn;
 	remap = remap_pfn_range(vma, fault_page, phys_pfn, PAGE_SIZE, vma->vm_page_prot);
 	if (remap != 0) {
 		printk(KERN_ERR "Remapping pages failed!\n");
@@ -174,9 +174,10 @@ paging_mmap(struct file           * filp,
 				printk(KERN_ERR "Failed to allocate new page during pre-paging\n");
 				return -ENOMEM;
 			}
+			phys_pfn = page_to_pfn(new_page);
 			tracker->page_indices[i] = phys_pfn;
 			atomic_inc(&pages_created);
-			phys_pfn = page_to_pfn(new_page);
+			
 			//Remap the i'th page in our memory region
 			remap = remap_pfn_range(vma, vma->vm_start + i*PAGE_SIZE, 
 					phys_pfn, PAGE_SIZE, vma->vm_page_prot);

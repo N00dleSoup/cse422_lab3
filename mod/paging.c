@@ -20,6 +20,7 @@ typedef struct {
 static atomic_t pages_created = ATOMIC_INIT(0);
 static atomic_t pages_freed = ATOMIC_INIT(0);
 
+//Set to 1 for demand paging, zero for pre-paging
 static unsigned int demand_paging = 1;
 module_param(demand_paging, uint, 0644);
 
@@ -66,10 +67,10 @@ paging_vma_fault(struct vm_area_struct * vma,
     int remap;
 	unsigned int phys_pfn;
 	vma_tracker_t * tracker;
-
+/*
 	printk(KERN_DEBUG "Page fault: in segment [0x%lx, 0x%lx), at VA 0x%lx\n",
         	vma->vm_start, vma->vm_end, (unsigned long)vmf->virtual_address );
-
+*/
 	fault_page = PAGE_ALIGN( (unsigned long)vmf->virtual_address);
 	p_offset = (fault_page - vma->vm_start) / PAGE_SIZE;
 	
@@ -79,6 +80,12 @@ paging_vma_fault(struct vm_area_struct * vma,
 		printk(KERN_ERR "Failed to allocate new page\n");
 		return VM_FAULT_OOM;
 	}
+	//Increase the count of allocated pages
+	atomic_inc(&pages_created);	
+
+	tracker = (vma_tracker_t *)vma->vm_private_data;
+	tracker->page_indices[p_offset] = phys_pfn;
+	
 	//Remap the virtual address of the beginning of the faulting page to new phys page
 	phys_pfn = page_to_pfn(new_page);
 	remap = remap_pfn_range(vma, fault_page, phys_pfn, PAGE_SIZE, vma->vm_page_prot);
@@ -86,11 +93,6 @@ paging_vma_fault(struct vm_area_struct * vma,
 		printk(KERN_ERR "Remapping pages failed!\n");
 		return VM_FAULT_SIGBUS;
 	}
-	//Increase the count of allocated pages
-	atomic_inc(&pages_created);	
-
-	tracker = (vma_tracker_t *)vma->vm_private_data;
-	tracker->page_indices[p_offset] = phys_pfn;
 
     return VM_FAULT_NOPAGE;
 }
@@ -104,7 +106,7 @@ paging_vma_ops =
 };
 
 
-static unsigned int get_order(unsigned int val) {
+/*static unsigned int get_order(unsigned int val) {
 	unsigned int shifts = 0;
 	if(!value) {
 		return 0;
@@ -118,7 +120,7 @@ static unsigned int get_order(unsigned int val) {
 	}
 	return shifts;
 }
-
+*/
 /* vma is the new virtual address segment for the process */
 static int
 paging_mmap(struct file           * filp,
@@ -126,6 +128,11 @@ paging_mmap(struct file           * filp,
 {
 	vma_tracker_t * tracker;
     int i;
+	//Pre-paging stuff
+	struct page * new_page;
+	int remap;
+	unsigned int phys_pfn;
+	
 	/* prevent Linux from mucking with our VMA (expanding it, merging it 
      * with other VMAs, etc.
      */
@@ -149,7 +156,7 @@ paging_mmap(struct file           * filp,
 			sizeof(unsigned int), GFP_KERNEL);
 	if( !tracker->page_indices ) {
 		printk(KERN_ERR "Failed to malloc page_indices\n");
-		return -ENOMEM
+		return -ENOMEM;
 	}
 	for(i = 0; i < tracker->nr_pages; ++i) {
 		tracker->page_indices[i] = 0;
@@ -158,6 +165,27 @@ paging_mmap(struct file           * filp,
 	atomic_set(&tracker->refcnt, 1);
 	
 	vma->vm_private_data = tracker;
+
+	//Pre-paging
+	if(!demand_paging) {
+		for(i = 0; i < tracker->nr_pages; ++i) {
+			new_page = alloc_pages( GFP_KERNEL, 0);
+			if( !new_page ){
+				printk(KERN_ERR "Failed to allocate new page during pre-paging\n");
+				return -ENOMEM;
+			}
+			tracker->page_indices[i] = phys_pfn;
+			atomic_inc(&pages_created);
+			phys_pfn = page_to_pfn(new_page);
+			//Remap the i'th page in our memory region
+			remap = remap_pfn_range(vma, vma->vm_start + i*PAGE_SIZE, 
+					phys_pfn, PAGE_SIZE, vma->vm_page_prot);
+			if(remap != 0) {
+				printk(KERN_ERR "Remapping pages failed during pre-paging\n");
+				return -EFAULT;
+			}
+		}
+	}
 
     return 0;
 }

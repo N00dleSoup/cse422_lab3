@@ -41,6 +41,7 @@ mmap_malloc(int    fd,
 
     void * data;
 
+
     data = mmap(0, bytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (data == MAP_FAILED) {
         fprintf(stderr, "Could not mmap " DEV_NAME ": %s\n", strerror(errno));
@@ -52,12 +53,18 @@ mmap_malloc(int    fd,
     //return malloc(bytes);
 }
 
+unsigned long timeval_to_us(struct timeval * tv) {
+	return (tv->tv_sec * 1000000) + tv->tv_usec;
+}
+
 int main (int argc, char* argv[])
 {
     int fd;
 	unsigned index, row, col; //loop indicies
 	unsigned matrix_size, squared_size;
 	double *A, *B, *C;
+	struct timeval start, end;
+	long delta;
 
 	if (argc != num_expected_args) {
 		printf("Usage: ./dense_mm <size of matrices>\n");
@@ -78,11 +85,16 @@ int main (int argc, char* argv[])
     }
 
 	squared_size = matrix_size * matrix_size;
-
+	gettimeofday(&start, NULL);
     A = (double *)mmap_malloc(fd, sizeof(double) * squared_size);
     B = (double *)mmap_malloc(fd, sizeof(double) * squared_size);
     C = (double *)mmap_malloc(fd, sizeof(double) * squared_size);
+	gettimeofday(&end, NULL);
 
+	delta = timeval_to_us(&end) - timeval_to_us(&start);
+	printf("mmap() took %lu us (%f s)\n", delta, (float)delta/1000000);	
+
+	gettimeofday(&start, NULL);
 	for (row = 0; row < matrix_size; row++) {
 		for (col = 0; col < matrix_size; col++) {
 			for (index = 0; index < matrix_size; index++){
@@ -90,8 +102,10 @@ int main (int argc, char* argv[])
 			}	
 		}
 	}
+	gettimeofday(&end, NULL);
 
-    printf("Multiplication done\n");
+	delta = timeval_to_us(&end) - timeval_to_us(&start);
+	printf("multiplication took %lu us (%f s)\n", delta, (float)delta/1000000);	
 
     return 0;
 }
